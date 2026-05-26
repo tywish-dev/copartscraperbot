@@ -1,0 +1,41 @@
+# Render Blueprint — 24/7 Copart Telegram bot
+# Docs: https://render.com/docs/background-workers
+#
+# Deploy:
+#   1. Push this repo to GitHub
+#   2. Open https://dashboard.render.com/blueprint/new?repo=https://github.com/tywish-dev/copartscraperbot
+#   3. Set secret env vars (TELEGRAM_BOT_TOKEN, etc.)
+#   4. Click Apply
+#
+# Note: headless Chrome needs RAM. Use at least the Standard plan (2 GB).
+
+services:
+  - type: worker
+    name: copartscraperbot
+    runtime: docker
+    plan: standard
+    region: ohio
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: DATA_DIR
+        value: /data
+      - key: SELENIUM_HEADLESS
+        value: "true"
+      - key: BROWSER
+        value: chrome
+      - key: CHECK_INTERVAL_MINUTES
+        value: "60"
+      - key: MAX_SCRAPE_PAGES
+        value: "20"
+      - key: MAX_CONCURRENT_SCANS
+        value: "1"
+      - key: SKIP_INITIAL_SCAN
+        value: "true"
+    disk:
+      name: copart-bot-data
+      mountPath: /data
+      sizeGB: 1

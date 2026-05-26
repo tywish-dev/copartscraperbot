@@ -1,0 +1,16 @@
+# Local or VPS testing — run: docker compose up --build
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      SELENIUM_HEADLESS: "true"
+      MAX_CONCURRENT_SCANS: "1"
+    volumes:
+      - bot-data:/data
+
+volumes:
+  bot-data:
