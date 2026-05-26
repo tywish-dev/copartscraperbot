@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+selenium
+undetected-chromedriver
+python-telegram-bot>=20.0
+twilio
+apscheduler
+python-dotenv
+SQLAlchemy
