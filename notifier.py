@@ -1,0 +1,181 @@
+"""Telegram and optional WhatsApp notification delivery."""
+
+import asyncio
+import logging
+import time
+
+from telegram import Bot
+from telegram.constants import ParseMode
+from telegram.error import TelegramError
+
+import config
+from filters import Lot
+
+logger = logging.getLogger(__name__)
+
+
+def format_lot_message_markdown(lot: Lot) -> str:
+    """Build a Telegram-friendly Markdown message for a lot."""
+    year = lot.year or "?"
+    make = lot.make or "Unknown"
+    model = lot.model or ""
+    buy_now = (
+        f"${lot.buy_now_price:,.0f}"
+        if lot.buy_now_price
+        else "N/A"
+    )
+    odometer = (
+        f"{lot.odometer:,} mi"
+        if lot.odometer is not None
+        else "Unknown"
+    )
+
+    return (
+        f"🚗 *{year} {make} {model}*\n"
+        f"💰 Buy Now: {buy_now}\n"
+        f"📍 Location: {lot.location}\n"
+        f"🔧 Damage: {lot.damage_type}\n"
+        f"🛣 Odometer: {odometer}\n"
+        f"📅 Auction: {lot.auction_date}\n"
+        f"🔗 [View Lot]({lot.lot_url})"
+    )
+
+
+def format_lot_message_plain(lot: Lot) -> str:
+    """Build a plain-text message for WhatsApp."""
+    year = lot.year or "?"
+    make = lot.make or "Unknown"
+    model = lot.model or ""
+    buy_now = (
+        f"${lot.buy_now_price:,.0f}"
+        if lot.buy_now_price
+        else "N/A"
+    )
+    odometer = (
+        f"{lot.odometer:,} mi"
+        if lot.odometer is not None
+        else "Unknown"
+    )
+
+    return (
+        f"🚗 {year} {make} {model}\n"
+        f"💰 Buy Now: {buy_now}\n"
+        f"📍 Location: {lot.location}\n"
+        f"🔧 Damage: {lot.damage_type}\n"
+        f"🛣 Odometer: {odometer}\n"
+        f"📅 Auction: {lot.auction_date}\n"
+        f"🔗 {lot.lot_url}"
+    )
+
+
+async def _send_telegram_async(lot: Lot) -> bool:
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        logger.error("Telegram credentials not configured")
+        return False
+
+    bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+    message = format_lot_message_markdown(lot)
+
+    for attempt in (1, 2):
+        try:
+            if lot.images:
+                await bot.send_photo(
+                    chat_id=config.TELEGRAM_CHAT_ID,
+                    photo=lot.images[0],
+                    caption=message,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            else:
+                await bot.send_message(
+                    chat_id=config.TELEGRAM_CHAT_ID,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=False,
+                )
+            logger.info("Telegram alert sent for lot %s", lot.lot_number)
+            return True
+        except TelegramError as exc:
+            logger.error(
+                "Telegram send failed for lot %s (attempt %d): %s",
+                lot.lot_number,
+                attempt,
+                exc,
+            )
+            if attempt == 1:
+                await asyncio.sleep(60)
+            else:
+                return False
+    return False
+
+
+def send_telegram_alert(lot: Lot) -> bool:
+    """Send a lot alert via Telegram (sync wrapper)."""
+    return asyncio.run(_send_telegram_async(lot))
+
+
+async def send_telegram_text_async(text: str) -> bool:
+    """Send a plain text message to the configured Telegram chat."""
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        logger.error("Telegram credentials not configured")
+        return False
+
+    bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+    try:
+        await bot.send_message(
+            chat_id=config.TELEGRAM_CHAT_ID,
+            text=text,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return True
+    except TelegramError as exc:
+        logger.error("Failed to send Telegram text: %s", exc)
+        return False
+
+
+def send_whatsapp_alert(lot: Lot) -> bool:
+    """Send a lot alert via Twilio WhatsApp if enabled."""
+    if not config.ENABLE_WHATSAPP:
+        return False
+
+    if not all(
+        [
+            config.TWILIO_ACCOUNT_SID,
+            config.TWILIO_AUTH_TOKEN,
+            config.TWILIO_WHATSAPP_FROM,
+            config.WHATSAPP_TO_NUMBER,
+        ]
+    ):
+        logger.error("WhatsApp/Twilio credentials not fully configured")
+        return False
+
+    try:
+        from twilio.rest import Client
+    except ImportError:
+        logger.error("Twilio library not installed")
+        return False
+
+    message = format_lot_message_plain(lot)
+    try:
+        client = Client(config.TWILIO_ACCOUNT_SID, config.TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            body=message,
+            from_=config.TWILIO_WHATSAPP_FROM,
+            to=config.WHATSAPP_TO_NUMBER,
+        )
+        logger.info("WhatsApp alert sent for lot %s", lot.lot_number)
+        return True
+    except Exception as exc:
+        logger.error("WhatsApp send failed for lot %s: %s", lot.lot_number, exc)
+        return False
+
+
+def notify_new_lot(lot: Lot) -> bool:
+    """
+    Send alerts for a new lot via Telegram (primary) and optionally WhatsApp.
+
+    Returns True if at least Telegram delivery succeeded.
+    """
+    telegram_ok = send_telegram_alert(lot)
+    if config.ENABLE_WHATSAPP:
+        send_whatsapp_alert(lot)
+    return telegram_ok
