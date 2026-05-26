@@ -158,3 +158,22 @@ If HTTP/API scraping is blocked, the bot falls back to headless Chrome via `unde
 ## License
 
 MIT
+
+## Connect to GitHub
+
+After cloning locally, push this repo to GitHub:
+
+```bash
+# 1. Authenticate (one-time)
+gh auth login
+
+# 2. Create the remote repo and push
+gh repo create copartscraperbot --private --source=. --remote=origin --push
+```
+
+Or, if you already created an empty repo on GitHub:
+
+```bash
+git remote add origin https://github.com/YOUR_USERNAME/copartscraperbot.git
+git push -u origin main
+```

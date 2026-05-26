@@ -33,7 +33,7 @@ def setup_logging() -> None:
 def format_preferences() -> str:
     """Return current filter settings as a readable string."""
     return (
-        "⚙️ *Current Preferences*\n\n"
+        "⚙️ <b>Current Preferences</b>\n\n"
         f"• Makes: {', '.join(config.PREFERRED_MAKES)}\n"
         f"• Min year: {config.MIN_YEAR}\n"
         f"• Max odometer: {config.MAX_ODOMETER:,} mi\n"
@@ -53,7 +53,7 @@ def format_status() -> str:
         scrape_time = "Never"
 
     return (
-        "📊 *Bot Status*\n\n"
+        "📊 <b>Bot Status</b>\n\n"
         f"• Last successful scrape: {scrape_time}\n"
         f"• Lots tracked (seen): {db.get_seen_count()}\n"
         f"• Scan in progress: {'Yes' if is_scan_running else 'No'}\n"
@@ -120,23 +120,23 @@ def run_scan() -> dict[str, int]:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 *Copart Monitor Bot*\n\n"
+        "👋 <b>Copart Monitor Bot</b>\n\n"
         "I watch Copart for vehicles matching your preferences and send alerts here.\n\n"
         "Commands:\n"
         "/start — Show this message\n"
         "/preferences — View current filter settings\n"
         "/check — Run an immediate scan\n"
         "/status — View bot status and last scrape time",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
 async def cmd_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(format_preferences(), parse_mode="Markdown")
+    await update.message.reply_text(format_preferences(), parse_mode="HTML")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(format_status(), parse_mode="Markdown")
+    await update.message.reply_text(format_status(), parse_mode="HTML")
 
 
 async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -150,7 +150,7 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"• Matched filters: {stats['filtered']}\n"
         f"• New alerts sent: {stats['notified']}\n"
         f"• Already seen: {stats['skipped']}",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -160,7 +160,7 @@ def scheduled_scan() -> None:
     if stats["notified"] > 0:
         asyncio.run(
             send_telegram_text_async(
-                f"🔔 Scheduled scan sent *{stats['notified']}* new alert(s)."
+                f"🔔 Scheduled scan sent <b>{stats['notified']}</b> new alert(s)."
             )
         )
 
@@ -169,8 +169,11 @@ def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    if not config.TELEGRAM_BOT_TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN is required. Copy .env.example to .env and fill it in.")
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        logger.error(
+            "TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required. "
+            "Copy .env.example to .env and fill them in."
+        )
         raise SystemExit(1)
 
     db.init_db()

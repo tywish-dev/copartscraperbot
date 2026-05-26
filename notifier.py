@@ -14,11 +14,20 @@ from filters import Lot
 logger = logging.getLogger(__name__)
 
 
+def _escape_html(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def format_lot_message_markdown(lot: Lot) -> str:
-    """Build a Telegram-friendly Markdown message for a lot."""
+    """Build a Telegram-friendly HTML message for a lot."""
     year = lot.year or "?"
-    make = lot.make or "Unknown"
-    model = lot.model or ""
+    make = _escape_html(lot.make or "Unknown")
+    model = _escape_html(lot.model or "")
+    title = _escape_html(f"{year} {make} {model}")
     buy_now = (
         f"${lot.buy_now_price:,.0f}"
         if lot.buy_now_price
@@ -29,15 +38,19 @@ def format_lot_message_markdown(lot: Lot) -> str:
         if lot.odometer is not None
         else "Unknown"
     )
+    location = _escape_html(lot.location)
+    damage = _escape_html(lot.damage_type)
+    auction = _escape_html(lot.auction_date)
+    lot_url = _escape_html(lot.lot_url)
 
     return (
-        f"🚗 *{year} {make} {model}*\n"
+        f"🚗 <b>{title}</b>\n"
         f"💰 Buy Now: {buy_now}\n"
-        f"📍 Location: {lot.location}\n"
-        f"🔧 Damage: {lot.damage_type}\n"
+        f"📍 Location: {location}\n"
+        f"🔧 Damage: {damage}\n"
         f"🛣 Odometer: {odometer}\n"
-        f"📅 Auction: {lot.auction_date}\n"
-        f"🔗 [View Lot]({lot.lot_url})"
+        f"📅 Auction: {auction}\n"
+        f'🔗 <a href="{lot_url}">View Lot</a>'
     )
 
 
@@ -83,13 +96,13 @@ async def _send_telegram_async(lot: Lot) -> bool:
                     chat_id=config.TELEGRAM_CHAT_ID,
                     photo=lot.images[0],
                     caption=message,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                 )
             else:
                 await bot.send_message(
                     chat_id=config.TELEGRAM_CHAT_ID,
                     text=message,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode=ParseMode.HTML,
                     disable_web_page_preview=False,
                 )
             logger.info("Telegram alert sent for lot %s", lot.lot_number)
@@ -124,7 +137,7 @@ async def send_telegram_text_async(text: str) -> bool:
         await bot.send_message(
             chat_id=config.TELEGRAM_CHAT_ID,
             text=text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
         )
         return True
     except TelegramError as exc:

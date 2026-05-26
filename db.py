@@ -2,8 +2,8 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, String, create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy import Column, DateTime, String, create_engine, func, select
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 import config
 
@@ -49,4 +49,4 @@ def mark_lot_seen(lot_number: str) -> None:
 def get_seen_count() -> int:
     """Return total number of lots in the seen database."""
     with SessionLocal() as session:
-        return session.query(SeenLot).count()
+        return session.scalar(select(func.count()).select_from(SeenLot)) or 0
