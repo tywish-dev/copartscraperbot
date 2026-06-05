@@ -2,6 +2,8 @@ requests
 beautifulsoup4
 selenium
 undetected-chromedriver
+setuptools
+webdriver-manager
 python-telegram-bot>=20.0
 twilio
 apscheduler

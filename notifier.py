@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import time
 
 from telegram import Bot
 from telegram.constants import ParseMode
@@ -28,11 +27,6 @@ def format_lot_message_markdown(lot: Lot) -> str:
     make = _escape_html(lot.make or "Unknown")
     model = _escape_html(lot.model or "")
     title = _escape_html(f"{year} {make} {model}")
-    buy_now = (
-        f"${lot.buy_now_price:,.0f}"
-        if lot.buy_now_price
-        else "N/A"
-    )
     odometer = (
         f"{lot.odometer:,} mi"
         if lot.odometer is not None
@@ -40,12 +34,20 @@ def format_lot_message_markdown(lot: Lot) -> str:
     )
     location = _escape_html(lot.location)
     damage = _escape_html(lot.damage_type)
+    title_status = _escape_html(lot.title_status or "Unknown")
     auction = _escape_html(lot.auction_date)
     lot_url = _escape_html(lot.lot_url)
 
+    price_line = (
+        f"💰 Buy Now: ${lot.buy_now_price:,.0f}\n"
+        if lot.buy_now_price
+        else "💰 Price: Auction\n"
+    )
+
     return (
         f"🚗 <b>{title}</b>\n"
-        f"💰 Buy Now: {buy_now}\n"
+        f"📄 Title: {title_status}\n"
+        f"{price_line}"
         f"📍 Location: {location}\n"
         f"🔧 Damage: {damage}\n"
         f"🛣 Odometer: {odometer}\n"
@@ -81,9 +83,9 @@ def format_lot_message_plain(lot: Lot) -> str:
     )
 
 
-async def _send_telegram_async(lot: Lot) -> bool:
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
-        logger.error("Telegram credentials not configured")
+async def _send_telegram_async(lot: Lot, chat_id: str | int) -> bool:
+    if not config.TELEGRAM_BOT_TOKEN:
+        logger.error("Telegram bot token not configured")
         return False
 
     bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
@@ -93,24 +95,25 @@ async def _send_telegram_async(lot: Lot) -> bool:
         try:
             if lot.images:
                 await bot.send_photo(
-                    chat_id=config.TELEGRAM_CHAT_ID,
+                    chat_id=str(chat_id),
                     photo=lot.images[0],
                     caption=message,
                     parse_mode=ParseMode.HTML,
                 )
             else:
                 await bot.send_message(
-                    chat_id=config.TELEGRAM_CHAT_ID,
+                    chat_id=str(chat_id),
                     text=message,
                     parse_mode=ParseMode.HTML,
                     disable_web_page_preview=False,
                 )
-            logger.info("Telegram alert sent for lot %s", lot.lot_number)
+            logger.info("Telegram alert sent for lot %s to chat %s", lot.lot_number, chat_id)
             return True
         except TelegramError as exc:
             logger.error(
-                "Telegram send failed for lot %s (attempt %d): %s",
+                "Telegram send failed for lot %s to chat %s (attempt %d): %s",
                 lot.lot_number,
+                chat_id,
                 attempt,
                 exc,
             )
@@ -121,27 +124,27 @@ async def _send_telegram_async(lot: Lot) -> bool:
     return False
 
 
-def send_telegram_alert(lot: Lot) -> bool:
+def send_telegram_alert(lot: Lot, chat_id: str | int) -> bool:
     """Send a lot alert via Telegram (sync wrapper)."""
-    return asyncio.run(_send_telegram_async(lot))
+    return asyncio.run(_send_telegram_async(lot, chat_id))
 
 
-async def send_telegram_text_async(text: str) -> bool:
-    """Send a plain text message to the configured Telegram chat."""
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
-        logger.error("Telegram credentials not configured")
+async def send_telegram_text_async(text: str, chat_id: str | int) -> bool:
+    """Send a plain text message to a Telegram chat."""
+    if not config.TELEGRAM_BOT_TOKEN:
+        logger.error("Telegram bot token not configured")
         return False
 
     bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
     try:
         await bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
+            chat_id=str(chat_id),
             text=text,
             parse_mode=ParseMode.HTML,
         )
         return True
     except TelegramError as exc:
-        logger.error("Failed to send Telegram text: %s", exc)
+        logger.error("Failed to send Telegram text to %s: %s", chat_id, exc)
         return False
 
 
@@ -182,13 +185,13 @@ def send_whatsapp_alert(lot: Lot) -> bool:
         return False
 
 
-def notify_new_lot(lot: Lot) -> bool:
+def notify_new_lot(lot: Lot, chat_id: str | int) -> bool:
     """
-    Send alerts for a new lot via Telegram (primary) and optionally WhatsApp.
+    Send alerts for a new lot to a specific user via Telegram.
 
-    Returns True if at least Telegram delivery succeeded.
+    Returns True if Telegram delivery succeeded.
     """
-    telegram_ok = send_telegram_alert(lot)
+    telegram_ok = send_telegram_alert(lot, chat_id)
     if config.ENABLE_WHATSAPP:
         send_whatsapp_alert(lot)
     return telegram_ok
