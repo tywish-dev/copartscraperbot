@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 import db
@@ -38,6 +39,24 @@ def _load_prefs(update: Update) -> UserPreferences:
 
 def _save_prefs(update: Update, prefs: UserPreferences) -> None:
     db.save_user_preferences(_user_id(update), prefs)
+
+
+async def _safe_edit_message_text(query, text: str, **kwargs) -> None:
+    """Edit a message, ignoring Telegram 'message is not modified' errors."""
+    try:
+        await query.edit_message_text(text, **kwargs)
+    except BadRequest as exc:
+        if "Message is not modified" in str(exc):
+            logger.debug("Telegram message unchanged, skipping edit")
+            return
+        raise
+
+
+def _title_settings_text(prefs: UserPreferences) -> str:
+    return (
+        "Title and odometer settings:\n\n"
+        f"• Max odometer: {prefs.max_odometer:,} mi"
+    )
 
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -138,6 +157,8 @@ def damage_keyboard(prefs: UserPreferences) -> InlineKeyboardMarkup:
 def title_keyboard(prefs: UserPreferences) -> InlineKeyboardMarkup:
     clean_icon = "✅" if prefs.require_clean_title else "❌"
     buy_icon = "✅" if prefs.only_buy_now else "❌"
+    odo_120 = "✅ " if prefs.max_odometer == 120_000 else ""
+    odo_999 = "✅ " if prefs.max_odometer == 999_999 else ""
     return InlineKeyboardMarkup(
         [
             [
@@ -153,8 +174,14 @@ def title_keyboard(prefs: UserPreferences) -> InlineKeyboardMarkup:
                 )
             ],
             [
-                InlineKeyboardButton("Max Odometer: 120k", callback_data="edit:odo:120000"),
-                InlineKeyboardButton("Max Odometer: 999k", callback_data="edit:odo:999999"),
+                InlineKeyboardButton(
+                    f"{odo_120}Max Odometer: 120k",
+                    callback_data="edit:odo:120000",
+                ),
+                InlineKeyboardButton(
+                    f"{odo_999}Max Odometer: 999k",
+                    callback_data="edit:odo:999999",
+                ),
             ],
             [InlineKeyboardButton("Back", callback_data="edit:main")],
         ]
@@ -197,7 +224,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "edit:main":
         user_data.pop(AWAIT_CUSTOM_MODEL, None)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             format_preferences_text(prefs) + "\n\nUse the buttons below to edit:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -206,7 +234,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "edit:done":
         user_data.pop(AWAIT_CUSTOM_MODEL, None)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             format_preferences_text(prefs) + "\n\n✅ Preferences saved.",
             parse_mode="HTML",
         )
@@ -215,7 +244,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "edit:reset":
         prefs = default_preferences()
         _save_prefs(update, prefs)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             format_preferences_text(prefs) + "\n\n↩️ Reset to defaults.",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -225,7 +255,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "edit:watch":
         user_data.pop(AWAIT_CUSTOM_MODEL, None)
         summary = "\n".join(f"• {t.label()}" for t in prefs.search_targets) or "(empty)"
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"<b>Watch List</b>\n{summary}",
             parse_mode="HTML",
             reply_markup=watch_menu_keyboard(),
@@ -240,7 +271,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         user_data.pop(PENDING_MODELS, None)
         user_data.pop(PENDING_ALL_MODELS, None)
         user_data.pop(PENDING_MIN_YEAR, None)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Select a make:",
             reply_markup=make_keyboard(),
         )
@@ -251,7 +283,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         user_data[PENDING_MAKE] = make
         user_data[PENDING_MODELS] = []
         user_data[PENDING_ALL_MODELS] = False
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"Selected <b>{make}</b>. Choose model(s) or All Models:",
             parse_mode="HTML",
             reply_markup=model_keyboard(make),
@@ -261,7 +294,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "edit:watch:allmodels":
         user_data[PENDING_ALL_MODELS] = True
         user_data[PENDING_MODELS] = []
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Select minimum year:",
             reply_markup=year_keyboard("min"),
         )
@@ -271,7 +305,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         model = data.split(":", 3)[3]
         user_data[PENDING_MODELS] = [model]
         user_data[PENDING_ALL_MODELS] = False
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"Model: <b>{model}</b>. Select minimum year:",
             parse_mode="HTML",
             reply_markup=year_keyboard("min"),
@@ -280,7 +315,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "edit:watch:custom":
         user_data[AWAIT_CUSTOM_MODEL] = True
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Send the model name as a message (e.g. <code>M3</code> or <code>911 Carrera</code>).",
             parse_mode="HTML",
         )
@@ -289,7 +325,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data.startswith("edit:watch:min:"):
         min_year = int(data.split(":")[3])
         user_data[PENDING_MIN_YEAR] = min_year
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"Min year: <b>{min_year}</b>. Select maximum year:",
             parse_mode="HTML",
             reply_markup=year_keyboard("max"),
@@ -322,7 +359,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         user_data.pop(PENDING_ALL_MODELS, None)
         user_data.pop(PENDING_MIN_YEAR, None)
 
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"Added: <b>{prefs.search_targets[-1].label()}</b>",
             parse_mode="HTML",
             reply_markup=watch_menu_keyboard(),
@@ -330,7 +368,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if data == "edit:watch:remove":
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Select a vehicle to remove:",
             reply_markup=remove_keyboard(prefs),
         )
@@ -341,7 +380,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if 0 <= idx < len(prefs.search_targets):
             removed = prefs.search_targets.pop(idx)
             _save_prefs(update, prefs)
-            await query.edit_message_text(
+            await _safe_edit_message_text(
+            query,
                 f"Removed: <b>{removed.label()}</b>",
                 parse_mode="HTML",
                 reply_markup=watch_menu_keyboard(),
@@ -349,7 +389,8 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if data == "edit:damage":
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Toggle allowed damage types:",
             reply_markup=damage_keyboard(prefs),
         )
@@ -372,15 +413,17 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             else:
                 prefs.allowed_damage_keywords.append(keyword)
             _save_prefs(update, prefs)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "Toggle allowed damage types:",
             reply_markup=damage_keyboard(prefs),
         )
         return
 
     if data == "edit:title":
-        await query.edit_message_text(
-            "Title and odometer settings:",
+        await _safe_edit_message_text(
+            query,
+            _title_settings_text(prefs),
             reply_markup=title_keyboard(prefs),
         )
         return
@@ -388,8 +431,9 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "edit:tgl:clean":
         prefs.require_clean_title = not prefs.require_clean_title
         _save_prefs(update, prefs)
-        await query.edit_message_text(
-            "Title and odometer settings:",
+        await _safe_edit_message_text(
+            query,
+            _title_settings_text(prefs),
             reply_markup=title_keyboard(prefs),
         )
         return
@@ -397,8 +441,9 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "edit:tgl:buynow":
         prefs.only_buy_now = not prefs.only_buy_now
         _save_prefs(update, prefs)
-        await query.edit_message_text(
-            "Title and odometer settings:",
+        await _safe_edit_message_text(
+            query,
+            _title_settings_text(prefs),
             reply_markup=title_keyboard(prefs),
         )
         return
@@ -406,8 +451,9 @@ async def handle_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data.startswith("edit:odo:"):
         prefs.max_odometer = int(data.split(":")[2])
         _save_prefs(update, prefs)
-        await query.edit_message_text(
-            "Title and odometer settings:",
+        await _safe_edit_message_text(
+            query,
+            _title_settings_text(prefs),
             reply_markup=title_keyboard(prefs),
         )
         return

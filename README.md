@@ -4,7 +4,9 @@ A Python bot that monitors [Copart.com](https://www.copart.com) for vehicles mat
 
 ## Features
 
-- Scrapes Copart using multiple strategies: public API → Solr endpoint → HTML parsing → Selenium fallback
+- Scrapes Copart **lotSearchResults** pages in a real Chrome browser (undetected-chromedriver)
+- Builds search URLs with the same `searchCriteria` filter format Copart uses on the website
+- Extracts lots via in-browser XHR (using page cookies) and DOM table parsing
 - Filters lots by make, year, odometer, buy-now price, damage type, and location
 - SQLite database prevents duplicate notifications
 - Scheduled scans every 30 minutes (configurable)
@@ -151,9 +153,30 @@ ENABLE_WHATSAPP=true
 - **Logs:** `bot.log` (auto-created)
 - **Seen lots DB:** `seen_lots.db` (auto-created, gitignored)
 
-## Selenium Fallback
+## Browser Scraper
 
-If HTTP/API scraping is blocked, the bot falls back to headless Chrome via `undetected-chromedriver`. Ensure Google Chrome is installed on your system.
+Copart blocks direct API calls (403). The bot uses **undetected-chromedriver** to load real search pages like:
+
+`https://www.copart.com/lotSearchResults?...&searchCriteria={...}`
+
+For each preferred make (and optional model), it:
+
+1. Opens the search URL in headless Chrome
+2. Waits for the results table to render
+3. Fetches lot data via in-browser XHR (uses the page session/cookies)
+4. Falls back to parsing the rendered HTML table rows
+
+**Requirements:** Google Chrome (preferred) or Microsoft Edge. Chrome is used via `undetected-chromedriver`; if Chrome is not installed, the bot falls back to Edge automatically.
+
+To restrict models (e.g. Tesla Model S only), edit `config.py`:
+
+```python
+PREFERRED_MODELS = {
+    "Tesla": ["Model S"],
+}
+```
+
+Set `SELENIUM_HEADLESS=false` in `.env` to watch the browser while debugging.
 
 ## License
 
